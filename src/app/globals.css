@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-surface text-slate font-sans antialiased;
+    font-size: 14px; /* base ≈ Inter 11pt à l'écran */
+  }
+
+  /* 4.3 Hiérarchie typographique — Poppins pour les titres */
+  h1 {
+    @apply font-heading font-semibold text-ink;
+    font-size: 24px;
+    line-height: 1.25;
+  }
+  h2 {
+    @apply font-heading font-medium text-ink;
+    font-size: 18px;
+    line-height: 1.3;
+  }
+  h3 {
+    @apply font-heading font-medium text-ink;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  /* Indicateurs (KPI) — chiffres tabulaires Inter */
+  .kpi {
+    font-variant-numeric: tabular-nums;
+    @apply font-medium text-ink;
+  }
+}
+
+@layer components {
+  /* Boutons — 5.3 Charte */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-control px-4 text-sm font-medium
+           transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    min-height: 40px; /* confort tactile terrain */
+  }
+  .btn-primary {
+    @apply bg-brand text-white hover:bg-[#16315a] active:bg-[#11264a];
+  }
+  .btn-secondary {
+    @apply border border-brand-interactive bg-white text-brand-interactive
+           hover:bg-brand-interactive/5 active:bg-brand-interactive/10;
+  }
+  .btn-accent {
+    @apply bg-brand-amber text-accentText hover:brightness-95 active:brightness-90;
+  }
+
+  .card {
+    @apply rounded-card border border-line bg-white shadow-card;
+  }
+
+  /* Champs de formulaire — cohérents avec les boutons (hauteur tactile 40px) */
+  .input {
+    @apply h-10 w-full rounded-control border border-line bg-surface px-3 text-sm text-ink
+           outline-none transition-colors placeholder:text-muted
+           focus:border-brand-interactive focus:ring-2 focus:ring-brand-interactive/20
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}
+
+@layer utilities {
+  /* Animations « ultra soft » — apparition discrète et flottement lent */
+  @keyframes soft-rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes soft-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  /* Dérive très lente du motif à pois (taille de tuile : 26px) */
+  @keyframes soft-drift {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      background-position: 52px 26px;
+    }
+  }
+
+  .animate-soft-drift {
+    animation: soft-drift 24s linear infinite;
+  }
+
+  .animate-soft-rise {
+    opacity: 0;
+    animation: soft-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .animate-soft-float {
+    animation: soft-float 7s ease-in-out infinite;
+  }
+
+  /* Décalages doux pour un enchaînement en cascade */
+  .delay-1 {
+    animation-delay: 0.12s;
+  }
+  .delay-2 {
+    animation-delay: 0.24s;
+  }
+  .delay-3 {
+    animation-delay: 0.36s;
+  }
+
+  /* Accessibilité — on coupe tout mouvement si l'utilisateur le préfère */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-soft-rise,
+    .animate-soft-float,
+    .animate-soft-drift {
+      animation: none;
+      opacity: 1;
+    }
+  }
+}
