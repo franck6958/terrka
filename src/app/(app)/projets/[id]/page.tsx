@@ -16,6 +16,7 @@ import {
 import { Topbar } from "@/components/Topbar";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StatusBadgeMenu } from "@/components/StatusBadgeMenu";
+import { ProjectActions } from "@/components/ProjectActions";
 import { ProgressBar } from "@/components/ProgressBar";
 import { AvancementControl } from "@/components/AvancementControl";
 import { useStore } from "@/lib/store";
@@ -67,7 +68,10 @@ export default function ProjetDetailPage({ params }: { params: Promise<{ id: str
                 <span>·</span> {PROJECT_TYPE_LABEL[projet.type]}
               </p>
             </div>
-            <StatusBadgeMenu projet={projet} />
+            <div className="flex shrink-0 items-center gap-2">
+              <StatusBadgeMenu projet={projet} />
+              <ProjectActions projet={projet} />
+            </div>
           </div>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-3">

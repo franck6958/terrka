@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { UserPlus, ShieldCheck, CircleCheck, CircleSlash, Trash2, AlertTriangle } from "lucide-react";
+import { UserPlus, ShieldCheck, CircleCheck, CircleSlash } from "lucide-react";
 import { Topbar } from "@/components/Topbar";
 import { Modal } from "@/components/Modal";
 import { RoleSelect } from "@/components/RoleSelect";
+import { UserActions } from "@/components/UserActions";
 import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 import { ROLE_LABEL } from "@/lib/status";
@@ -13,21 +14,10 @@ import type { Role } from "@/lib/types";
 const ROLES = Object.keys(ROLE_LABEL) as Role[];
 
 export default function UtilisateursPage() {
-  const { utilisateurs, hydrated, addUtilisateur, setUtilisateurActif, deleteUtilisateur } = useStore();
+  const { utilisateurs, hydrated, addUtilisateur } = useStore();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Utilisateur en attente de confirmation de suppression.
-  const [aSupprimer, setASupprimer] = useState<{ id: string; nom: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  async function confirmerSuppression() {
-    if (!aSupprimer) return;
-    setDeleting(true);
-    const ok = await deleteUtilisateur(aSupprimer.id);
-    setDeleting(false);
-    if (ok) setASupprimer(null);
-  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -93,25 +83,8 @@ export default function UtilisateursPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setUtilisateurActif(u.id, !u.actif)}
-                        className="rounded-control border border-line px-2.5 py-1 text-xs font-medium text-slate hover:bg-surface"
-                      >
-                        {u.actif ? "Désactiver" : "Activer"}
-                      </button>
-                      {u.id !== user?.id && (
-                        <button
-                          type="button"
-                          onClick={() => setASupprimer({ id: u.id, nom: u.nom })}
-                          aria-label={`Supprimer ${u.nom}`}
-                          title="Supprimer"
-                          className="flex h-7 w-7 items-center justify-center rounded-control border border-line text-muted hover:border-state-late/40 hover:bg-state-late/10 hover:text-state-late"
-                        >
-                          <Trash2 size={15} aria-hidden />
-                        </button>
-                      )}
+                    <div className="flex justify-end">
+                      <UserActions utilisateur={u} self={u.id === user?.id} />
                     </div>
                   </td>
                 </tr>
@@ -164,34 +137,6 @@ export default function UtilisateursPage() {
             </button>
           </div>
         </form>
-      </Modal>
-
-      <Modal open={aSupprimer !== null} onClose={() => setASupprimer(null)} title="Supprimer le compte">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-state-late/10 text-state-late">
-            <AlertTriangle size={20} aria-hidden />
-          </span>
-          <div className="text-sm text-slate">
-            <p>
-              Voulez-vous vraiment supprimer le compte de{" "}
-              <span className="font-medium text-ink">{aSupprimer?.nom}</span> ?
-            </p>
-            <p className="mt-1 text-muted">Cette action est irréversible.</p>
-          </div>
-        </div>
-        <div className="mt-5 flex items-center justify-end gap-3">
-          <button type="button" onClick={() => setASupprimer(null)} className="btn btn-secondary">
-            Annuler
-          </button>
-          <button
-            type="button"
-            onClick={confirmerSuppression}
-            disabled={deleting}
-            className="btn bg-state-late text-white hover:brightness-95 disabled:opacity-60"
-          >
-            <Trash2 size={16} /> {deleting ? "Suppression…" : "Supprimer"}
-          </button>
-        </div>
       </Modal>
     </>
   );

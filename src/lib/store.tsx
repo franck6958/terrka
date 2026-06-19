@@ -367,6 +367,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [utilisateurs]
   );
 
+  const updateUtilisateur = useCallback(async (id: string, input: { nom: string; email: string }) => {
+    try {
+      const res = await fetch(`/api/utilisateurs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      const { utilisateur } = (await res.json()) as { utilisateur: Utilisateur };
+      setUtilisateurs((prev) =>
+        prev.map((u) => (u.id === utilisateur.id ? utilisateur : u)).sort((a, b) => a.nom.localeCompare(b.nom))
+      );
+      return true;
+    } catch (e) {
+      console.error(e);
+      setError(e instanceof Error ? e.message : "La modification du compte a échoué.");
+      return false;
+    }
+  }, []);
+
+  const resetMotDePasseUtilisateur = useCallback(async (id: string, motDePasse: string) => {
+    try {
+      const res = await fetch(`/api/utilisateurs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motDePasse }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      return true;
+    } catch (e) {
+      console.error(e);
+      setError(e instanceof Error ? e.message : "La réinitialisation du mot de passe a échoué.");
+      return false;
+    }
+  }, []);
+
   const deleteUtilisateur = useCallback(
     async (id: string) => {
       const snapshot = utilisateurs;
@@ -496,6 +538,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         addUtilisateur,
         setUtilisateurActif,
         setUtilisateurRole,
+        updateUtilisateur,
+        resetMotDePasseUtilisateur,
         deleteUtilisateur,
         addDocument,
         updateDocument,

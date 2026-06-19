@@ -91,7 +91,11 @@ export function ProjectActions({ projet }: { projet: Projet }) {
     setBusy(true);
     const ok = await deleteProjet(projet.id);
     setBusy(false);
-    if (ok) setConfirmOpen(false);
+    if (ok) {
+      setConfirmOpen(false);
+      // Sur la fiche détaillée, le projet n'existe plus → on retourne à la liste.
+      router.push("/projets");
+    }
   }
 
   async function handleDuplicate() {
