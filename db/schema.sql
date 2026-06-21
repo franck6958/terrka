@@ -19,17 +19,56 @@ CREATE TABLE IF NOT EXISTS projets (
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- L'identifiant de tâche ("t-1", "t-2"...) n'est unique qu'au sein d'un projet
--- → clé primaire composite (projet_id, id).
+-- Découpage hiérarchique réalisé par le maître d'œuvre :
+--   projet → étapes → activités → tâches.
+-- Les identifiants ("e-1", "a-1", "t-1"...) ne sont uniques qu'au sein d'un
+-- projet → clés primaires composites (projet_id, id).
+
+CREATE TABLE IF NOT EXISTS etapes (
+  id          TEXT    NOT NULL,
+  projet_id   TEXT    NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+  intitule    TEXT    NOT NULL,
+  ordre       INTEGER NOT NULL DEFAULT 0,
+  avancement  INTEGER NOT NULL DEFAULT 0,
+  statut      TEXT    NOT NULL DEFAULT 'ontime',
+  PRIMARY KEY (projet_id, id)
+);
+
+CREATE TABLE IF NOT EXISTS activites (
+  id          TEXT    NOT NULL,
+  projet_id   TEXT    NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+  etape_id    TEXT    NOT NULL,
+  intitule    TEXT    NOT NULL,
+  ordre       INTEGER NOT NULL DEFAULT 0,
+  avancement  INTEGER NOT NULL DEFAULT 0,
+  statut      TEXT    NOT NULL DEFAULT 'ontime',
+  PRIMARY KEY (projet_id, id),
+  FOREIGN KEY (projet_id, etape_id) REFERENCES etapes(projet_id, id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS taches (
   id           TEXT    NOT NULL,
   projet_id    TEXT    NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+  etape_id     TEXT    NOT NULL DEFAULT '',
+  activite_id  TEXT    NOT NULL DEFAULT '',
+  ordre        INTEGER NOT NULL DEFAULT 0,
   intitule     TEXT    NOT NULL,
   avancement   INTEGER NOT NULL DEFAULT 0,
   statut       TEXT    NOT NULL DEFAULT 'ontime',
   responsable  TEXT    NOT NULL DEFAULT '',
   echeance     DATE,
   PRIMARY KEY (projet_id, id)
+);
+
+-- Remarques déposées sur une tâche par le MOA / super-admin (BF).
+CREATE TABLE IF NOT EXISTS remarques (
+  id         TEXT PRIMARY KEY,
+  projet_id  TEXT NOT NULL,
+  tache_id   TEXT NOT NULL,
+  auteur     TEXT NOT NULL,
+  contenu    TEXT NOT NULL,
+  date       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (projet_id, tache_id) REFERENCES taches(projet_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS alertes (
@@ -47,6 +86,16 @@ CREATE TABLE IF NOT EXISTS utilisateurs (
   role   TEXT NOT NULL,
   email  TEXT NOT NULL UNIQUE,
   actif  BOOLEAN NOT NULL DEFAULT true
+);
+
+-- Affectation d'une tâche à un ou plusieurs ouvriers (BF — maître d'œuvre).
+-- Placée après `utilisateurs` (clé étrangère vers les comptes ouvriers).
+CREATE TABLE IF NOT EXISTS tache_ouvriers (
+  projet_id   TEXT NOT NULL,
+  tache_id    TEXT NOT NULL,
+  ouvrier_id  TEXT NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+  PRIMARY KEY (projet_id, tache_id, ouvrier_id),
+  FOREIGN KEY (projet_id, tache_id) REFERENCES taches(projet_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -83,7 +132,12 @@ CREATE TABLE IF NOT EXISTS contacts (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_etapes_projet    ON etapes (projet_id);
+CREATE INDEX IF NOT EXISTS idx_activites_projet  ON activites (projet_id, etape_id);
 CREATE INDEX IF NOT EXISTS idx_taches_projet    ON taches (projet_id);
+CREATE INDEX IF NOT EXISTS idx_taches_activite  ON taches (projet_id, activite_id);
+CREATE INDEX IF NOT EXISTS idx_tache_ouvriers   ON tache_ouvriers (projet_id, tache_id);
+CREATE INDEX IF NOT EXISTS idx_remarques_tache  ON remarques (projet_id, tache_id);
 CREATE INDEX IF NOT EXISTS idx_alertes_projet   ON alertes (projet_id);
 CREATE INDEX IF NOT EXISTS idx_projets_statut   ON projets (statut);
 CREATE INDEX IF NOT EXISTS idx_documents_projet ON documents (projet_id);

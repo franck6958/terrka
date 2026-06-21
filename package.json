@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:init": "node scripts/init-db.mjs"
+    "db:init": "node scripts/init-db.mjs",
+    "db:migrate-hierarchie": "node scripts/migrate-hierarchie.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

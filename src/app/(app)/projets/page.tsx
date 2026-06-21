@@ -7,6 +7,8 @@ import { Topbar } from "@/components/Topbar";
 import { ProjectCard } from "@/components/ProjectCard";
 import { EmptyState } from "@/components/EmptyState";
 import { useStore } from "@/lib/store";
+import { useAuth } from "@/lib/auth-context";
+import { canManageProjets } from "@/lib/rbac";
 import { STATUS } from "@/lib/status";
 import type { StatusKey } from "@/lib/types";
 import { cn } from "@/lib/cn";
@@ -21,6 +23,8 @@ const FILTERS: { key: StatusKey | "all"; label: string }[] = [
 
 export default function ProjetsPage() {
   const { projets } = useStore();
+  const { user } = useAuth();
+  const peutCreer = !!user && canManageProjets(user.role);
   const [filtre, setFiltre] = useState<StatusKey | "all">("all");
 
   const liste = useMemo(
@@ -36,9 +40,11 @@ export default function ProjetsPage() {
           <p className="flex items-center gap-2 text-sm text-slate">
             <Filter size={15} /> {liste.length} projet{liste.length > 1 ? "s" : ""}
           </p>
-          <Link href="/projets/nouveau" className="btn btn-primary">
-            <Plus size={16} /> Créer un projet
-          </Link>
+          {peutCreer && (
+            <Link href="/projets/nouveau" className="btn btn-primary">
+              <Plus size={16} /> Créer un projet
+            </Link>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2">

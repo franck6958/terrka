@@ -29,13 +29,57 @@ export interface Utilisateur {
   actif: boolean;
 }
 
+// Référence légère vers un ouvrier affecté à une tâche (BF — affectation MOE).
+export interface OuvrierRef {
+  id: string;
+  nom: string;
+}
+
+// Remarque déposée sur une tâche par le maître d'ouvrage ou le super-admin.
+export interface Remarque {
+  id: string;
+  auteur: string;
+  contenu: string;
+  date: string; // ISO datetime
+}
+
 export interface Tache {
   id: string;
+  etapeId: string;
+  activiteId: string;
+  ordre: number;
   intitule: string;
   avancement: number; // % réalisé
   statut: StatusKey;
-  responsable: string;
+  responsable: string; // libellé d'équipe (legacy / complément aux ouvriers affectés)
   echeance: string; // ISO date
+  ouvriers: OuvrierRef[]; // ouvriers affectés par le maître d'œuvre
+  remarques: Remarque[]; // remarques du MOA / super-admin
+}
+
+// Activité : regroupe des tâches. Se déverrouille lorsque l'activité précédente
+// de l'étape est entièrement terminée (verrouillage séquentiel).
+export interface Activite {
+  id: string;
+  etapeId: string;
+  ordre: number;
+  intitule: string;
+  avancement: number; // % calculé = moyenne des tâches
+  statut: StatusKey;
+  verrouillee: boolean; // true tant que l'activité précédente n'est pas terminée
+  taches: Tache[];
+}
+
+// Étape : regroupe des activités. Se déverrouille lorsque l'étape précédente est
+// entièrement terminée (toutes ses activités achevées).
+export interface Etape {
+  id: string;
+  ordre: number;
+  intitule: string;
+  avancement: number; // % calculé = moyenne des activités
+  statut: StatusKey;
+  verrouillee: boolean; // true tant que l'étape précédente n'est pas terminée
+  activites: Activite[];
 }
 
 export interface Alerte {
@@ -61,7 +105,8 @@ export interface Projet {
   delaiRestantJours: number;
   lat: number;
   lng: number;
-  taches: Tache[];
+  etapes: Etape[]; // découpage hiérarchique réalisé par le maître d'œuvre
+  taches: Tache[]; // liste à plat de toutes les tâches (dérivée des étapes) — vues transverses
 }
 
 // Journal d'audit (BF-15 / BNF-09) : trace horodatée des actions.

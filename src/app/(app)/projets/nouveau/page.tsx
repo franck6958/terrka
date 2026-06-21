@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Save } from "lucide-react";
 import { Topbar } from "@/components/Topbar";
 import { useStore } from "@/lib/store";
+import { useAuth } from "@/lib/auth-context";
+import { canManageProjets } from "@/lib/rbac";
 import { PROJECT_TYPE_LABEL } from "@/lib/status";
 import type { ProjectType } from "@/lib/types";
 
@@ -28,8 +30,26 @@ const TYPES = Object.keys(PROJECT_TYPE_LABEL) as ProjectType[];
 
 export default function NouveauProjetPage() {
   const { addProjet } = useStore();
+  const { user } = useAuth();
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+
+  // Création réservée au maître d'ouvrage et au super-administrateur.
+  if (user && !canManageProjets(user.role)) {
+    return (
+      <>
+        <Topbar title="Nouveau projet" />
+        <main className="p-5 lg:p-6">
+          <div className="card p-8 text-center text-sm text-muted">
+            Seuls le maître d&apos;ouvrage et le super-administrateur peuvent créer un projet.
+            <div className="mt-4">
+              <Link href="/projets" className="btn btn-secondary">Retour aux projets</Link>
+            </div>
+          </div>
+        </main>
+      </>
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

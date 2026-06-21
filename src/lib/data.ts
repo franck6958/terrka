@@ -1,6 +1,81 @@
-import type { Projet, Alerte, Utilisateur, Document, EntreeJournal } from "./types";
+import type {
+  Projet,
+  Alerte,
+  Utilisateur,
+  Document,
+  EntreeJournal,
+  Tache,
+  Etape,
+  Activite,
+  OuvrierRef,
+  StatusKey,
+} from "./types";
 
-export const projets: Projet[] = [
+// Ouvriers de démonstration affectés à certaines tâches : rattachement fiable
+// utilisateur ↔ tâche (cohérent avec la table tache_ouvriers). Permet aux
+// tableaux de bord « chef de chantier » et « ouvrier » d'afficher « mes tâches ».
+const JEAN: OuvrierRef = { id: "u-4", nom: "Jean Eto'o" }; // chef-chantier
+const ALI: OuvrierRef = { id: "u-7", nom: "Ali Bakari" }; // ouvrier
+
+// Tâche « à plat » du jeu de démonstration (avant restructuration hiérarchique).
+interface TacheSeed {
+  id: string;
+  intitule: string;
+  avancement: number;
+  statut: StatusKey;
+  responsable: string;
+  echeance: string;
+  ouvriers?: OuvrierRef[];
+}
+
+// Enveloppe une liste de tâches dans une étape + activité uniques
+// (« Étape 1 / Activité 1 »), à l'image de scripts/migrate-hierarchie.mjs.
+// Renvoie la hiérarchie (etapes) et la liste à plat (taches) attendues par Projet.
+function structurer(statut: StatusKey, seeds: TacheSeed[]): { etapes: Etape[]; taches: Tache[] } {
+  const etapeId = "e-1";
+  const activiteId = "a-1";
+  const taches: Tache[] = seeds.map((s, i) => ({
+    id: s.id,
+    etapeId,
+    activiteId,
+    ordre: i + 1,
+    intitule: s.intitule,
+    avancement: s.avancement,
+    statut: s.statut,
+    responsable: s.responsable,
+    echeance: s.echeance,
+    ouvriers: s.ouvriers ?? [],
+    remarques: [],
+  }));
+  const avancement = taches.length
+    ? Math.round(taches.reduce((a, t) => a + t.avancement, 0) / taches.length)
+    : 0;
+  const activite: Activite = {
+    id: activiteId,
+    etapeId,
+    ordre: 1,
+    intitule: "Activité 1",
+    avancement,
+    statut,
+    verrouillee: false,
+    taches,
+  };
+  const etape: Etape = {
+    id: etapeId,
+    ordre: 1,
+    intitule: "Étape 1",
+    avancement,
+    statut,
+    verrouillee: false,
+    activites: [activite],
+  };
+  return { etapes: [etape], taches };
+}
+
+// Métadonnées projet + tâches à plat. La hiérarchie est dérivée par structurer().
+type ProjetSeed = Omit<Projet, "etapes" | "taches"> & { taches: TacheSeed[] };
+
+const projetsSeed: ProjetSeed[] = [
   {
     id: "p-001",
     intitule: "Réhabilitation route Douala–Yaoundé",
@@ -17,9 +92,9 @@ export const projets: Projet[] = [
     lng: 9.7679,
     taches: [
       { id: "t-1", intitule: "Terrassement section PK0–PK12", avancement: 100, statut: "done", responsable: "Eq. Terrassement", echeance: "2026-03-15" },
-      { id: "t-2", intitule: "Couche de fondation", avancement: 80, statut: "risk", responsable: "Eq. Chaussée", echeance: "2026-06-30" },
-      { id: "t-3", intitule: "Revêtement bitumineux", avancement: 35, statut: "risk", responsable: "Eq. Chaussée", echeance: "2026-08-20" },
-      { id: "t-4", intitule: "Signalisation et glissières", avancement: 0, statut: "ontime", responsable: "Eq. Équipements", echeance: "2026-09-30" },
+      { id: "t-2", intitule: "Couche de fondation", avancement: 80, statut: "risk", responsable: "Eq. Chaussée", echeance: "2026-06-30", ouvriers: [JEAN] },
+      { id: "t-3", intitule: "Revêtement bitumineux", avancement: 35, statut: "risk", responsable: "Eq. Chaussée", echeance: "2026-08-20", ouvriers: [JEAN, ALI] },
+      { id: "t-4", intitule: "Signalisation et glissières", avancement: 0, statut: "ontime", responsable: "Eq. Équipements", echeance: "2026-09-30", ouvriers: [ALI] },
     ],
   },
   {
@@ -58,7 +133,7 @@ export const projets: Projet[] = [
     lng: 13.5847,
     taches: [
       { id: "t-1", intitule: "Dérivation provisoire", avancement: 100, statut: "done", responsable: "Eq. Hydraulique", echeance: "2026-02-01" },
-      { id: "t-2", intitule: "Excavation fondation barrage", avancement: 45, statut: "late", responsable: "Eq. Terrassement", echeance: "2026-05-01" },
+      { id: "t-2", intitule: "Excavation fondation barrage", avancement: 45, statut: "late", responsable: "Eq. Terrassement", echeance: "2026-05-01", ouvriers: [JEAN] },
       { id: "t-3", intitule: "Bétonnage corps du barrage", avancement: 5, statut: "late", responsable: "Eq. Génie civil", echeance: "2026-10-01" },
     ],
   },
@@ -79,7 +154,7 @@ export const projets: Projet[] = [
     taches: [
       { id: "t-1", intitule: "Gros œuvre", avancement: 100, statut: "done", responsable: "Eq. Bâtiment", echeance: "2026-03-01" },
       { id: "t-2", intitule: "Second œuvre", avancement: 70, statut: "ontime", responsable: "Eq. Finitions", echeance: "2026-07-01" },
-      { id: "t-3", intitule: "VRD et aménagements", avancement: 40, statut: "ontime", responsable: "Eq. VRD", echeance: "2026-08-10" },
+      { id: "t-3", intitule: "VRD et aménagements", avancement: 40, statut: "ontime", responsable: "Eq. VRD", echeance: "2026-08-10", ouvriers: [ALI] },
     ],
   },
   {
@@ -117,11 +192,16 @@ export const projets: Projet[] = [
     lng: 13.6846,
     taches: [
       { id: "t-1", intitule: "Bloc opératoire — gros œuvre", avancement: 95, statut: "done", responsable: "Eq. Bâtiment", echeance: "2026-04-20" },
-      { id: "t-2", intitule: "Fluides médicaux", avancement: 45, statut: "risk", responsable: "Eq. Technique", echeance: "2026-07-10" },
+      { id: "t-2", intitule: "Fluides médicaux", avancement: 45, statut: "risk", responsable: "Eq. Technique", echeance: "2026-07-10", ouvriers: [JEAN] },
       { id: "t-3", intitule: "Équipement et mobilier", avancement: 20, statut: "risk", responsable: "Eq. Équipements", echeance: "2026-08-05" },
     ],
   },
 ];
+
+export const projets: Projet[] = projetsSeed.map(({ taches, ...rest }) => {
+  const { etapes, taches: flat } = structurer(rest.statut, taches);
+  return { ...rest, etapes, taches: flat };
+});
 
 export const alertes: Alerte[] = [
   { id: "a-1", projetId: "p-003", type: "retard", severite: "late", message: "Échéance « Excavation fondation barrage » dépassée de 12 jours.", date: "2026-06-16T08:12:00" },
@@ -138,7 +218,7 @@ export const utilisateurs: Utilisateur[] = [
   { id: "u-4", nom: "Jean Eto'o", role: "chef-chantier", email: "j.etoo@trekka.cm", actif: true },
   { id: "u-5", nom: "Bureau Veritas CM", role: "controle", email: "controle@trekka.cm", actif: true },
   { id: "u-6", nom: "Banque Mondiale", role: "bailleur", email: "suivi@bailleur.org", actif: true },
-  { id: "u-7", nom: "Ali Bakari", role: "ouvrier", email: "a.bakari@trekka.cm", actif: false },
+  { id: "u-7", nom: "Ali Bakari", role: "ouvrier", email: "a.bakari@trekka.cm", actif: true },
 ];
 
 // Documents de démonstration : métadonnées seules (aucun contenu réel stocké

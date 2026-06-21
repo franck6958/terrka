@@ -2,7 +2,15 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { computeAlertes } from "./alertes";
+import { recomputeProjet } from "./progression";
 import type { Projet, StatusKey, Alerte, Utilisateur, Document, Role, DocumentType } from "./types";
+
+interface NewTacheInput {
+  activiteId: string;
+  intitule: string;
+  responsable?: string;
+  echeance?: string | null;
+}
 
 interface NewProjetInput {
   intitule: string;
@@ -66,6 +74,20 @@ interface StoreValue {
   deleteProjet: (id: string) => Promise<boolean>;
   duplicateProjet: (id: string) => Promise<string | null>;
   updateTacheAvancement: (projetId: string, tacheId: string, avancement: number) => Promise<void>;
+  // — Découpage hiérarchique (maître d'œuvre) —
+  addEtape: (projetId: string, intitule: string) => Promise<boolean>;
+  renameEtape: (projetId: string, etapeId: string, intitule: string) => Promise<boolean>;
+  removeEtape: (projetId: string, etapeId: string) => Promise<boolean>;
+  addActivite: (projetId: string, etapeId: string, intitule: string) => Promise<boolean>;
+  renameActivite: (projetId: string, activiteId: string, intitule: string) => Promise<boolean>;
+  removeActivite: (projetId: string, activiteId: string) => Promise<boolean>;
+  addTache: (projetId: string, input: NewTacheInput) => Promise<boolean>;
+  updateTacheMeta: (projetId: string, tacheId: string, input: { intitule: string; responsable?: string; echeance?: string | null }) => Promise<boolean>;
+  removeTache: (projetId: string, tacheId: string) => Promise<boolean>;
+  setTacheOuvriers: (projetId: string, tacheId: string, ouvrierIds: string[]) => Promise<boolean>;
+  // — Remarques (maître d'ouvrage + super-administrateur) —
+  addRemarque: (projetId: string, tacheId: string, contenu: string) => Promise<boolean>;
+  removeRemarque: (projetId: string, remarqueId: string) => Promise<boolean>;
   addUtilisateur: (input: NewUtilisateurInput) => Promise<boolean>;
   setUtilisateurActif: (id: string, actif: boolean) => Promise<void>;
   setUtilisateurRole: (id: string, role: Role) => Promise<boolean>;
@@ -84,22 +106,6 @@ interface StoreValue {
 const ALERTES_LUES_KEY = "trekka:alertes-lues:v1";
 
 const StoreContext = createContext<StoreValue | null>(null);
-
-// Recalcule l'avancement global (moyenne des tâches) et l'état du projet.
-// Utilisé pour la mise à jour optimiste de l'UI ; la base recalcule de son côté.
-function recompute(projet: Projet): Projet {
-  const taches = projet.taches;
-  const avancement = taches.length
-    ? Math.round(taches.reduce((s, t) => s + t.avancement, 0) / taches.length)
-    : projet.avancement;
-
-  let statut: StatusKey = projet.statut;
-  if (statut !== "paused") {
-    if (taches.length && taches.every((t) => t.avancement >= 100)) statut = "done";
-    else if (projet.delaiRestantJours < 0) statut = "late";
-  }
-  return { ...projet, avancement, statut };
-}
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [projets, setProjets] = useState<Projet[]>([]);
@@ -264,19 +270,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [projets, addProjet]
   );
 
+  // Remplace un projet dans l'état (réponse autoritative du serveur).
+  const replaceProjet = useCallback((projet: Projet) => {
+    setProjets((prev) => prev.map((p) => (p.id === projet.id ? projet : p)));
+  }, []);
+
+  // Mutation de structure/remarque : appelle l'API et applique le projet renvoyé.
+  const mutateProjet = useCallback(
+    async (url: string, init: RequestInit, echec: string): Promise<boolean> => {
+      try {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json" },
+          ...init,
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? `HTTP ${res.status}`);
+        }
+        const { projet } = (await res.json()) as { projet: Projet };
+        replaceProjet(projet);
+        return true;
+      } catch (e) {
+        console.error(e);
+        setError(e instanceof Error ? e.message : echec);
+        return false;
+      }
+    },
+    [replaceProjet]
+  );
+
   const updateTacheAvancement = useCallback(
     async (projetId: string, tacheId: string, avancement: number) => {
       const v = Math.max(0, Math.min(100, Math.round(avancement)));
-      // Mise à jour optimiste (recalcul local immédiat).
+      const snapshot = projets;
+      // Mise à jour optimiste (recalcul hiérarchique local immédiat).
       setProjets((prev) =>
         prev.map((p) => {
           if (p.id !== projetId) return p;
-          const taches = p.taches.map((t) =>
-            t.id === tacheId
-              ? { ...t, avancement: v, statut: (v >= 100 ? "done" : t.statut === "done" ? "ontime" : t.statut) as StatusKey }
-              : t
-          );
-          return recompute({ ...p, taches });
+          const etapes = p.etapes.map((e) => ({
+            ...e,
+            activites: e.activites.map((a) => ({
+              ...a,
+              taches: a.taches.map((t) =>
+                t.id === tacheId
+                  ? { ...t, avancement: v, statut: (v >= 100 ? "done" : t.statut === "done" ? "ontime" : t.statut) as StatusKey }
+                  : t
+              ),
+            })),
+          }));
+          return recomputeProjet({ ...p, etapes });
         })
       );
       // Persistance en base, puis resynchronisation avec l'état serveur.
@@ -286,15 +328,83 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ avancement: v }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? `HTTP ${res.status}`);
+        }
         const { projet } = (await res.json()) as { projet: Projet };
         setProjets((prev) => prev.map((p) => (p.id === projet.id ? projet : p)));
       } catch (e) {
         console.error(e);
-        setError("La mise à jour n'a pas pu être enregistrée en base.");
+        setProjets(snapshot); // restauration (ex. activité verrouillée → 409)
+        setError(e instanceof Error ? e.message : "La mise à jour n'a pas pu être enregistrée en base.");
       }
     },
-    []
+    [projets]
+  );
+
+  // — Découpage hiérarchique (maître d'œuvre) —
+  const addEtape = useCallback(
+    (projetId: string, intitule: string) =>
+      mutateProjet(`/api/projets/${projetId}/etapes`, { method: "POST", body: JSON.stringify({ intitule }) }, "L'ajout de l'étape a échoué."),
+    [mutateProjet]
+  );
+  const renameEtape = useCallback(
+    (projetId: string, etapeId: string, intitule: string) =>
+      mutateProjet(`/api/projets/${projetId}/etapes/${etapeId}`, { method: "PATCH", body: JSON.stringify({ intitule }) }, "Le renommage de l'étape a échoué."),
+    [mutateProjet]
+  );
+  const removeEtape = useCallback(
+    (projetId: string, etapeId: string) =>
+      mutateProjet(`/api/projets/${projetId}/etapes/${etapeId}`, { method: "DELETE" }, "La suppression de l'étape a échoué."),
+    [mutateProjet]
+  );
+  const addActivite = useCallback(
+    (projetId: string, etapeId: string, intitule: string) =>
+      mutateProjet(`/api/projets/${projetId}/activites`, { method: "POST", body: JSON.stringify({ etapeId, intitule }) }, "L'ajout de l'activité a échoué."),
+    [mutateProjet]
+  );
+  const renameActivite = useCallback(
+    (projetId: string, activiteId: string, intitule: string) =>
+      mutateProjet(`/api/projets/${projetId}/activites/${activiteId}`, { method: "PATCH", body: JSON.stringify({ intitule }) }, "Le renommage de l'activité a échoué."),
+    [mutateProjet]
+  );
+  const removeActivite = useCallback(
+    (projetId: string, activiteId: string) =>
+      mutateProjet(`/api/projets/${projetId}/activites/${activiteId}`, { method: "DELETE" }, "La suppression de l'activité a échoué."),
+    [mutateProjet]
+  );
+  const addTache = useCallback(
+    (projetId: string, input: NewTacheInput) =>
+      mutateProjet(`/api/projets/${projetId}/taches`, { method: "POST", body: JSON.stringify(input) }, "La création de la tâche a échoué."),
+    [mutateProjet]
+  );
+  const updateTacheMeta = useCallback(
+    (projetId: string, tacheId: string, input: { intitule: string; responsable?: string; echeance?: string | null }) =>
+      mutateProjet(`/api/projets/${projetId}/taches/${tacheId}`, { method: "PATCH", body: JSON.stringify(input) }, "La modification de la tâche a échoué."),
+    [mutateProjet]
+  );
+  const removeTache = useCallback(
+    (projetId: string, tacheId: string) =>
+      mutateProjet(`/api/projets/${projetId}/taches/${tacheId}`, { method: "DELETE" }, "La suppression de la tâche a échoué."),
+    [mutateProjet]
+  );
+  const setTacheOuvriers = useCallback(
+    (projetId: string, tacheId: string, ouvrierIds: string[]) =>
+      mutateProjet(`/api/projets/${projetId}/taches/${tacheId}`, { method: "PATCH", body: JSON.stringify({ ouvrierIds }) }, "L'affectation a échoué."),
+    [mutateProjet]
+  );
+
+  // — Remarques (maître d'ouvrage + super-administrateur) —
+  const addRemarque = useCallback(
+    (projetId: string, tacheId: string, contenu: string) =>
+      mutateProjet(`/api/projets/${projetId}/taches/${tacheId}/remarques`, { method: "POST", body: JSON.stringify({ contenu }) }, "L'ajout de la remarque a échoué."),
+    [mutateProjet]
+  );
+  const removeRemarque = useCallback(
+    (projetId: string, remarqueId: string) =>
+      mutateProjet(`/api/projets/${projetId}/remarques/${remarqueId}`, { method: "DELETE" }, "La suppression de la remarque a échoué."),
+    [mutateProjet]
   );
 
   // — Utilisateurs (BF-02) —
@@ -535,6 +645,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         deleteProjet,
         duplicateProjet,
         updateTacheAvancement,
+        addEtape,
+        renameEtape,
+        removeEtape,
+        addActivite,
+        renameActivite,
+        removeActivite,
+        addTache,
+        updateTacheMeta,
+        removeTache,
+        setTacheOuvriers,
+        addRemarque,
+        removeRemarque,
         addUtilisateur,
         setUtilisateurActif,
         setUtilisateurRole,

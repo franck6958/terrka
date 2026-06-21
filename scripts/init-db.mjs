@@ -133,10 +133,29 @@ async function main() {
     budget_consomme NUMERIC(18,2) NOT NULL DEFAULT 0, delai_restant_jours INTEGER NOT NULL DEFAULT 0,
     lat DOUBLE PRECISION NOT NULL DEFAULT 0, lng DOUBLE PRECISION NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  q.push(sql`CREATE TABLE IF NOT EXISTS etapes (
+    id TEXT NOT NULL, projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+    intitule TEXT NOT NULL, ordre INTEGER NOT NULL DEFAULT 0,
+    avancement INTEGER NOT NULL DEFAULT 0, statut TEXT NOT NULL DEFAULT 'ontime',
+    PRIMARY KEY (projet_id, id))`);
+  q.push(sql`CREATE TABLE IF NOT EXISTS activites (
+    id TEXT NOT NULL, projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+    etape_id TEXT NOT NULL, intitule TEXT NOT NULL, ordre INTEGER NOT NULL DEFAULT 0,
+    avancement INTEGER NOT NULL DEFAULT 0, statut TEXT NOT NULL DEFAULT 'ontime',
+    PRIMARY KEY (projet_id, id),
+    FOREIGN KEY (projet_id, etape_id) REFERENCES etapes(projet_id, id) ON DELETE CASCADE)`);
   q.push(sql`CREATE TABLE IF NOT EXISTS taches (
     id TEXT NOT NULL, projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+    etape_id TEXT NOT NULL DEFAULT '', activite_id TEXT NOT NULL DEFAULT '', ordre INTEGER NOT NULL DEFAULT 0,
     intitule TEXT NOT NULL, avancement INTEGER NOT NULL DEFAULT 0, statut TEXT NOT NULL DEFAULT 'ontime',
     responsable TEXT NOT NULL DEFAULT '', echeance DATE, PRIMARY KEY (projet_id, id))`);
+  q.push(sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS etape_id TEXT NOT NULL DEFAULT ''`);
+  q.push(sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS activite_id TEXT NOT NULL DEFAULT ''`);
+  q.push(sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS ordre INTEGER NOT NULL DEFAULT 0`);
+  q.push(sql`CREATE TABLE IF NOT EXISTS remarques (
+    id TEXT PRIMARY KEY, projet_id TEXT NOT NULL, tache_id TEXT NOT NULL,
+    auteur TEXT NOT NULL, contenu TEXT NOT NULL, date TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (projet_id, tache_id) REFERENCES taches(projet_id, id) ON DELETE CASCADE)`);
   q.push(sql`CREATE TABLE IF NOT EXISTS alertes (
     id TEXT PRIMARY KEY, projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
     type TEXT NOT NULL, severite TEXT NOT NULL, message TEXT NOT NULL, date TIMESTAMPTZ NOT NULL DEFAULT now())`);
@@ -144,6 +163,11 @@ async function main() {
     id TEXT PRIMARY KEY, nom TEXT NOT NULL, role TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
     actif BOOLEAN NOT NULL DEFAULT true, mot_de_passe_hash TEXT NOT NULL DEFAULT '')`);
   q.push(sql`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS mot_de_passe_hash TEXT NOT NULL DEFAULT ''`);
+  q.push(sql`CREATE TABLE IF NOT EXISTS tache_ouvriers (
+    projet_id TEXT NOT NULL, tache_id TEXT NOT NULL,
+    ouvrier_id TEXT NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+    PRIMARY KEY (projet_id, tache_id, ouvrier_id),
+    FOREIGN KEY (projet_id, tache_id) REFERENCES taches(projet_id, id) ON DELETE CASCADE)`);
   q.push(sql`CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY, projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
     nom TEXT NOT NULL, type TEXT NOT NULL, taille TEXT NOT NULL DEFAULT '', date DATE NOT NULL DEFAULT now(),
@@ -160,11 +184,19 @@ async function main() {
     q.push(sql`INSERT INTO projets (id, intitule, type, region, moa, lot, statut, avancement, budget_total, budget_consomme, delai_restant_jours, lat, lng)
       VALUES (${p.id}, ${p.intitule}, ${p.type}, ${p.region}, ${p.moa}, ${p.lot}, ${p.statut}, ${p.avancement}, ${p.budgetTotal}, ${p.budgetConsomme}, ${p.delaiRestantJours}, ${p.lat}, ${p.lng})
       ON CONFLICT (id) DO NOTHING`);
-    for (const t of p.taches) {
-      q.push(sql`INSERT INTO taches (id, projet_id, intitule, avancement, statut, responsable, echeance)
-        VALUES (${t.id}, ${p.id}, ${t.intitule}, ${t.avancement}, ${t.statut}, ${t.responsable}, ${t.echeance})
+    // Les tâches de démonstration sont regroupées dans une étape + activité par
+    // défaut (le maître d'œuvre affinera ensuite le découpage).
+    q.push(sql`INSERT INTO etapes (id, projet_id, intitule, ordre, avancement, statut)
+      VALUES ('e-1', ${p.id}, ${"Étape 1 — Réalisation"}, 1, ${p.avancement}, ${p.statut})
+      ON CONFLICT (projet_id, id) DO NOTHING`);
+    q.push(sql`INSERT INTO activites (id, projet_id, etape_id, intitule, ordre, avancement, statut)
+      VALUES ('a-1', ${p.id}, 'e-1', ${"Activité 1 — Travaux"}, 1, ${p.avancement}, ${p.statut})
+      ON CONFLICT (projet_id, id) DO NOTHING`);
+    p.taches.forEach((t, i) => {
+      q.push(sql`INSERT INTO taches (id, projet_id, etape_id, activite_id, ordre, intitule, avancement, statut, responsable, echeance)
+        VALUES (${t.id}, ${p.id}, 'e-1', 'a-1', ${i + 1}, ${t.intitule}, ${t.avancement}, ${t.statut}, ${t.responsable}, ${t.echeance})
         ON CONFLICT (projet_id, id) DO NOTHING`);
-    }
+    });
   }
   for (const a of alertes) {
     q.push(sql`INSERT INTO alertes (id, projet_id, type, severite, message, date)

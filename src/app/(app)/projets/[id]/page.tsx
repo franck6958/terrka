@@ -11,14 +11,12 @@ import {
   TrendingUp,
   FileText,
   AlertTriangle,
-  ClipboardCheck,
 } from "lucide-react";
 import { Topbar } from "@/components/Topbar";
-import { StatusBadge } from "@/components/StatusBadge";
 import { StatusBadgeMenu } from "@/components/StatusBadgeMenu";
 import { ProjectActions } from "@/components/ProjectActions";
 import { ProgressBar } from "@/components/ProgressBar";
-import { AvancementControl } from "@/components/AvancementControl";
+import { ProjetStructure } from "@/components/ProjetStructure";
 import { useStore } from "@/lib/store";
 import { formatFCFA, PROJECT_TYPE_LABEL } from "@/lib/status";
 
@@ -103,37 +101,7 @@ export default function ProjetDetailPage({ params }: { params: Promise<{ id: str
         </section>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          <section className="card p-5 lg:col-span-2">
-            <h2 className="mb-1 flex items-center gap-2">
-              <ClipboardCheck size={18} className="text-brand-interactive" /> Tâches & lots
-            </h2>
-            <p className="mb-4 text-xs text-muted">
-              Mise à jour quotidienne de l&apos;avancement depuis le terrain (BF-05).
-            </p>
-            <div className="space-y-5">
-              {projet.taches.map((t) => (
-                <div key={t.id} className="border-b border-line pb-5 last:border-0 last:pb-0">
-                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-ink">{t.intitule}</span>
-                    <StatusBadge statut={t.statut} />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <ProgressBar
-                      value={t.avancement}
-                      tone={t.statut === "late" ? "late" : t.statut === "risk" ? "risk" : t.statut === "done" ? "interactive" : "ontime"}
-                    />
-                    <span className="kpi w-10 shrink-0 text-right text-sm">{t.avancement}%</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-muted">
-                      {t.responsable} · échéance {new Date(t.echeance).toLocaleDateString("fr-FR")}
-                    </p>
-                    <AvancementControl projetId={projet.id} tacheId={t.id} value={t.avancement} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          <ProjetStructure projet={projet} />
 
           <div className="space-y-6">
             <section className="card p-5">

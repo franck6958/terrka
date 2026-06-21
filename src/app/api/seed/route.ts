@@ -30,15 +30,53 @@ export async function POST() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
     await sql`
+      CREATE TABLE IF NOT EXISTS etapes (
+        id TEXT NOT NULL,
+        projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+        intitule TEXT NOT NULL,
+        ordre INTEGER NOT NULL DEFAULT 0,
+        avancement INTEGER NOT NULL DEFAULT 0,
+        statut TEXT NOT NULL DEFAULT 'ontime',
+        PRIMARY KEY (projet_id, id)
+      )`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS activites (
+        id TEXT NOT NULL,
+        projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+        etape_id TEXT NOT NULL,
+        intitule TEXT NOT NULL,
+        ordre INTEGER NOT NULL DEFAULT 0,
+        avancement INTEGER NOT NULL DEFAULT 0,
+        statut TEXT NOT NULL DEFAULT 'ontime',
+        PRIMARY KEY (projet_id, id),
+        FOREIGN KEY (projet_id, etape_id) REFERENCES etapes(projet_id, id) ON DELETE CASCADE
+      )`;
+    await sql`
       CREATE TABLE IF NOT EXISTS taches (
         id TEXT NOT NULL,
         projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
+        etape_id TEXT NOT NULL DEFAULT '',
+        activite_id TEXT NOT NULL DEFAULT '',
+        ordre INTEGER NOT NULL DEFAULT 0,
         intitule TEXT NOT NULL,
         avancement INTEGER NOT NULL DEFAULT 0,
         statut TEXT NOT NULL DEFAULT 'ontime',
         responsable TEXT NOT NULL DEFAULT '',
         echeance DATE,
         PRIMARY KEY (projet_id, id)
+      )`;
+    await sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS etape_id TEXT NOT NULL DEFAULT ''`;
+    await sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS activite_id TEXT NOT NULL DEFAULT ''`;
+    await sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS ordre INTEGER NOT NULL DEFAULT 0`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS remarques (
+        id TEXT PRIMARY KEY,
+        projet_id TEXT NOT NULL,
+        tache_id TEXT NOT NULL,
+        auteur TEXT NOT NULL,
+        contenu TEXT NOT NULL,
+        date TIMESTAMPTZ NOT NULL DEFAULT now(),
+        FOREIGN KEY (projet_id, tache_id) REFERENCES taches(projet_id, id) ON DELETE CASCADE
       )`;
     await sql`
       CREATE TABLE IF NOT EXISTS alertes (
@@ -60,6 +98,15 @@ export async function POST() {
       )`;
     // Colonne mot de passe pour les bases déjà créées avant l'auth (BF-01).
     await sql`ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS mot_de_passe_hash TEXT NOT NULL DEFAULT ''`;
+    // Affectation tâche ↔ ouvriers (après utilisateurs : clé étrangère).
+    await sql`
+      CREATE TABLE IF NOT EXISTS tache_ouvriers (
+        projet_id TEXT NOT NULL,
+        tache_id TEXT NOT NULL,
+        ouvrier_id TEXT NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+        PRIMARY KEY (projet_id, tache_id, ouvrier_id),
+        FOREIGN KEY (projet_id, tache_id) REFERENCES taches(projet_id, id) ON DELETE CASCADE
+      )`;
     await sql`
       CREATE TABLE IF NOT EXISTS documents (
         id TEXT PRIMARY KEY,
@@ -87,17 +134,29 @@ export async function POST() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
 
-    // — Données de démonstration —
+    // — Données de démonstration (hiérarchie étapes → activités → tâches) —
     for (const p of projets) {
       await sql`
         INSERT INTO projets (id, intitule, type, region, moa, lot, statut, avancement, budget_total, budget_consomme, delai_restant_jours, lat, lng)
         VALUES (${p.id}, ${p.intitule}, ${p.type}, ${p.region}, ${p.moa}, ${p.lot}, ${p.statut}, ${p.avancement}, ${p.budgetTotal}, ${p.budgetConsomme}, ${p.delaiRestantJours}, ${p.lat}, ${p.lng})
         ON CONFLICT (id) DO NOTHING`;
-      for (const t of p.taches) {
+      for (const e of p.etapes) {
         await sql`
-          INSERT INTO taches (id, projet_id, intitule, avancement, statut, responsable, echeance)
-          VALUES (${t.id}, ${p.id}, ${t.intitule}, ${t.avancement}, ${t.statut}, ${t.responsable}, ${t.echeance})
+          INSERT INTO etapes (id, projet_id, intitule, ordre, avancement, statut)
+          VALUES (${e.id}, ${p.id}, ${e.intitule}, ${e.ordre}, ${e.avancement}, ${e.statut})
           ON CONFLICT (projet_id, id) DO NOTHING`;
+        for (const a of e.activites) {
+          await sql`
+            INSERT INTO activites (id, projet_id, etape_id, intitule, ordre, avancement, statut)
+            VALUES (${a.id}, ${p.id}, ${e.id}, ${a.intitule}, ${a.ordre}, ${a.avancement}, ${a.statut})
+            ON CONFLICT (projet_id, id) DO NOTHING`;
+          for (const t of a.taches) {
+            await sql`
+              INSERT INTO taches (id, projet_id, etape_id, activite_id, ordre, intitule, avancement, statut, responsable, echeance)
+              VALUES (${t.id}, ${p.id}, ${e.id}, ${a.id}, ${t.ordre}, ${t.intitule}, ${t.avancement}, ${t.statut}, ${t.responsable}, ${t.echeance})
+              ON CONFLICT (projet_id, id) DO NOTHING`;
+          }
+        }
       }
     }
 
@@ -115,6 +174,18 @@ export async function POST() {
         INSERT INTO utilisateurs (id, nom, role, email, actif, mot_de_passe_hash)
         VALUES (${u.id}, ${u.nom}, ${u.role}, ${u.email}, ${u.actif}, ${motDePasseHash})
         ON CONFLICT (id) DO UPDATE SET mot_de_passe_hash = EXCLUDED.mot_de_passe_hash`;
+    }
+
+    // Affectations tâche ↔ ouvriers (après l'insertion des comptes utilisateurs).
+    for (const p of projets) {
+      for (const t of p.taches) {
+        for (const o of t.ouvriers) {
+          await sql`
+            INSERT INTO tache_ouvriers (projet_id, tache_id, ouvrier_id)
+            VALUES (${p.id}, ${t.id}, ${o.id})
+            ON CONFLICT DO NOTHING`;
+        }
+      }
     }
 
     for (const d of documents) {
