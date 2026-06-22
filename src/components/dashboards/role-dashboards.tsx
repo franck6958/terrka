@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import {
   FolderKanban,
   AlertTriangle,
@@ -14,6 +16,9 @@ import {
   BarChart3,
   ShieldCheck,
   HardHat,
+  Hourglass,
+  Check,
+  X,
 } from "lucide-react";
 import { KpiCard } from "@/components/KpiCard";
 import { useStore } from "@/lib/store";
@@ -127,6 +132,7 @@ export function MoeDashboard() {
   const m = computeMetrics(projets);
   const taches = flattenTaches(projets);
   const tachesEnCours = taches.filter((t) => t.tache.statut !== "done");
+  const aValider = taches.filter((t) => t.tache.validation === "en_attente").length;
   // Tâches non terminées triées par urgence (échéance la plus proche en tête).
   const echeances = [...tachesEnCours].sort((a, b) => joursAvant(a.tache.echeance) - joursAvant(b.tache.echeance));
   const banner = useBanner("Pilotage opérationnel — avancement des tâches et échéances à tenir.");
@@ -138,9 +144,11 @@ export function MoeDashboard() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Projets pilotés" value={m.total} hint={`${m.enRetard} en retard · ${m.aRisque} à risque`} icon={FolderKanban} />
         <KpiCard label="Tâches en cours" value={tachesEnCours.length} hint={`${taches.length - tachesEnCours.length} terminées`} icon={ListChecks} tone="brand" />
-        <KpiCard label="Avancement moyen" value={`${m.avancementMoyen}%`} hint="Portefeuille global" icon={TrendingUp} tone="ontime" />
+        <KpiCard label="Tâches à valider" value={aValider} hint="Déclarées terminées par les ouvriers" icon={Hourglass} tone={aValider ? "risk" : "ontime"} />
         <KpiCard label="Alertes actives" value={alertes.length} hint="Retards, budget, incidents" icon={AlertTriangle} tone="risk" />
       </section>
+
+      <TachesAValider />
 
       <ProjetsASurveiller projets={projets} />
 
@@ -153,6 +161,122 @@ export function MoeDashboard() {
 
       <AvancementParProjet projets={projets} />
     </main>
+  );
+}
+
+// ── Tâches en attente de validation de clôture (MOE / chef de chantier) ──────
+// L'ouvrier déclare une tâche terminée ; le validateur vérifie puis valide, ou
+// refuse en précisant un motif (transmis à l'ouvrier en remarque).
+function TachesAValider() {
+  const { projets, validerClotureTache } = useStore();
+  const enAttente = flattenTaches(projets).filter((t) => t.tache.validation === "en_attente");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // Tâche dont le refus est en cours de saisie (motif), et texte du motif.
+  const [refusId, setRefusId] = useState<string | null>(null);
+  const [motif, setMotif] = useState("");
+
+  const valider = async (projetId: string, tacheId: string) => {
+    setBusyId(tacheId);
+    await validerClotureTache(projetId, tacheId, true);
+    setBusyId(null);
+  };
+
+  const confirmerRefus = async (projetId: string, tacheId: string) => {
+    if (!motif.trim()) return;
+    setBusyId(tacheId);
+    const ok = await validerClotureTache(projetId, tacheId, false, motif);
+    setBusyId(null);
+    if (ok) {
+      setRefusId(null);
+      setMotif("");
+    }
+  };
+
+  return (
+    <section className="card p-5">
+      <h2 className="mb-1 flex items-center gap-2">
+        <Hourglass size={18} className="text-state-risk" /> Tâches à valider
+      </h2>
+      <p className="mb-4 text-xs text-muted">
+        Tâches déclarées terminées par les ouvriers, en attente de votre vérification.
+      </p>
+      {enAttente.length === 0 ? (
+        <p className="text-sm text-muted">Aucune tâche en attente de validation.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {enAttente.map(({ tache, projet }) => {
+            const busy = busyId === tache.id;
+            const enRefus = refusId === tache.id;
+            return (
+              <li key={`${projet.id}-${tache.id}`} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-ink">{tache.intitule}</p>
+                    <Link href={`/projets/${projet.id}`} className="truncate text-xs text-brand-interactive hover:underline">
+                      {projet.intitule}
+                    </Link>
+                    {tache.ouvriers.length > 0 && (
+                      <p className="truncate text-xs text-muted">Déclarée par {tache.ouvriers.map((o) => o.nom).join(", ")}</p>
+                    )}
+                  </div>
+                  {!enRefus && (
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => valider(projet.id, tache.id)}
+                        className="btn btn-primary text-xs disabled:opacity-60"
+                      >
+                        <Check size={14} aria-hidden /> Valider
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => { setRefusId(tache.id); setMotif(""); }}
+                        className="btn btn-secondary text-xs disabled:opacity-60"
+                      >
+                        <X size={14} aria-hidden /> Refuser
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Saisie du motif de refus (transmis à l'ouvrier en remarque) */}
+                {enRefus && (
+                  <div className="mt-2 space-y-2 rounded-control bg-surface p-3">
+                    <textarea
+                      value={motif}
+                      onChange={(e) => setMotif(e.target.value)}
+                      rows={2}
+                      autoFocus
+                      placeholder="Motif du refus (ce qui reste à corriger)…"
+                      className="input w-full text-sm"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setRefusId(null); setMotif(""); }}
+                        className="btn btn-secondary text-xs"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || !motif.trim()}
+                        onClick={() => confirmerRefus(projet.id, tache.id)}
+                        className="btn btn-primary text-xs disabled:opacity-60"
+                      >
+                        <X size={14} aria-hidden /> Confirmer le refus
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -185,6 +309,8 @@ export function ChefChantierDashboard() {
         <KpiCard label="Incidents signalés" value={incidents.length} hint="Sur vos chantiers" icon={HardHat} tone={incidents.length ? "late" : "ontime"} />
       </section>
 
+      <TachesAValider />
+
       <TachesList
         items={tri}
         titre={personnalise ? "Mes tâches" : "Tâches du chantier"}
@@ -202,10 +328,9 @@ export function ChefChantierDashboard() {
 export function OuvrierDashboard() {
   const { projets } = useStore();
   const { user } = useAuth();
-  const toutes = flattenTaches(projets);
-  const mesTaches = toutes.filter((t) => t.tache.ouvriers.some((o) => o.id === user?.id));
-  const taches = mesTaches.length ? mesTaches : toutes;
-  const personnalise = mesTaches.length > 0;
+  // L'ouvrier ne voit QUE les tâches que le maître d'œuvre lui a affectées :
+  // aucun repli sur l'ensemble du portefeuille (cloisonnement des données terrain).
+  const taches = flattenTaches(projets).filter((t) => t.tache.ouvriers.some((o) => o.id === user?.id));
   const enCours = taches.filter((t) => t.tache.statut !== "done");
   const terminees = taches.length - enCours.length;
   const prochesEcheances = enCours.filter((t) => joursAvant(t.tache.echeance) <= 7).length;
@@ -224,8 +349,8 @@ export function OuvrierDashboard() {
 
       <TachesList
         items={tri}
-        titre={personnalise ? "Mes tâches" : "Tâches en cours"}
-        vide="Aucune tâche assignée pour le moment."
+        titre="Mes tâches"
+        vide="Aucune tâche ne vous a encore été assignée par le maître d'œuvre."
       />
     </main>
   );

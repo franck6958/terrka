@@ -148,10 +148,12 @@ async function main() {
     id TEXT NOT NULL, projet_id TEXT NOT NULL REFERENCES projets(id) ON DELETE CASCADE,
     etape_id TEXT NOT NULL DEFAULT '', activite_id TEXT NOT NULL DEFAULT '', ordre INTEGER NOT NULL DEFAULT 0,
     intitule TEXT NOT NULL, avancement INTEGER NOT NULL DEFAULT 0, statut TEXT NOT NULL DEFAULT 'ontime',
-    responsable TEXT NOT NULL DEFAULT '', echeance DATE, PRIMARY KEY (projet_id, id))`);
+    responsable TEXT NOT NULL DEFAULT '', echeance DATE,
+    validation TEXT NOT NULL DEFAULT 'none', PRIMARY KEY (projet_id, id))`);
   q.push(sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS etape_id TEXT NOT NULL DEFAULT ''`);
   q.push(sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS activite_id TEXT NOT NULL DEFAULT ''`);
   q.push(sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS ordre INTEGER NOT NULL DEFAULT 0`);
+  q.push(sql`ALTER TABLE taches ADD COLUMN IF NOT EXISTS validation TEXT NOT NULL DEFAULT 'none'`);
   q.push(sql`CREATE TABLE IF NOT EXISTS remarques (
     id TEXT PRIMARY KEY, projet_id TEXT NOT NULL, tache_id TEXT NOT NULL,
     auteur TEXT NOT NULL, contenu TEXT NOT NULL, date TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -43,6 +43,11 @@ export interface Remarque {
   date: string; // ISO datetime
 }
 
+// Validation de clôture d'une tâche : l'ouvrier affecté déclare la tâche
+// terminée (« en_attente ») ; le maître d'œuvre valide après vérification
+// (tâche à 100 % / « done », retour à « none ») ou refuse (retour à « none »).
+export type ValidationCloture = "none" | "en_attente";
+
 export interface Tache {
   id: string;
   etapeId: string;
@@ -55,6 +60,7 @@ export interface Tache {
   echeance: string; // ISO date
   ouvriers: OuvrierRef[]; // ouvriers affectés par le maître d'œuvre
   remarques: Remarque[]; // remarques du MOA / super-admin
+  validation: ValidationCloture; // demande de clôture en attente de validation MOE
 }
 
 // Activité : regroupe des tâches. Se déverrouille lorsque l'activité précédente

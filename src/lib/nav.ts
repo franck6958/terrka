@@ -7,6 +7,7 @@ import {
   BarChart3,
   Users,
   History,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 
@@ -20,6 +21,7 @@ export interface NavItem {
 // Source unique partagée par la Sidebar (desktop) et le MobileNav (mobile).
 export const NAV: NavItem[] = [
   { href: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
+  { href: "/mes-taches", label: "Mes tâches", icon: ClipboardList },
   { href: "/projets", label: "Projets", icon: FolderKanban },
   { href: "/carte", label: "Cartographie", icon: Map },
   { href: "/alertes", label: "Alertes", icon: Bell },

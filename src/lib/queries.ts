@@ -53,6 +53,7 @@ function rowToTache(
     echeance: dateOnly(r.echeance),
     ouvriers,
     remarques,
+    validation: ((r.validation as string) ?? "none") as Tache["validation"],
   };
 }
 
@@ -651,6 +652,14 @@ export class VerrouillageError extends Error {
   }
 }
 
+// Erreur métier : demande de clôture invalide (non affecté, déjà terminée…).
+export class ClotureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClotureError";
+  }
+}
+
 export async function updateTacheAvancement(
   projetId: string,
   tacheId: string,
@@ -851,6 +860,87 @@ export async function setTacheOuvriers(
   const noms = valides.map((o) => o.nom as string).join(", ") || "aucun ouvrier";
   await logEvent(await getActeurNom(), "a affecté la tâche", `${tache.intitule} → ${noms}`);
   return getProjet(projetId);
+}
+
+// — Clôture d'une tâche avec validation du maître d'œuvre —
+//
+// L'ouvrier affecté déclare sa tâche terminée (validation = « en_attente ») ;
+// le maître d'œuvre vérifie puis valide (avancement 100 % / statut « done »)
+// ou refuse (retour à « none », avancement conservé).
+
+// Déclaration de clôture par l'ouvrier affecté. Refuse si le demandeur n'est pas
+// affecté à la tâche, ou si celle-ci est déjà terminée ou déjà en attente.
+export async function demanderClotureTache(
+  projetId: string,
+  tacheId: string,
+  ouvrierId: string
+): Promise<Projet | undefined> {
+  const projet = await getProjet(projetId);
+  const tache = projet?.taches.find((t) => t.id === tacheId);
+  if (!projet || !tache) return undefined;
+  if (!tache.ouvriers.some((o) => o.id === ouvrierId)) {
+    throw new ClotureError("Vous n'êtes pas affecté à cette tâche.");
+  }
+  if (tache.statut === "done") {
+    throw new ClotureError("Cette tâche est déjà terminée.");
+  }
+  if (tache.validation === "en_attente") {
+    throw new ClotureError("Une validation est déjà en attente pour cette tâche.");
+  }
+  await sql`
+    UPDATE taches SET validation = 'en_attente'
+    WHERE projet_id = ${projetId} AND id = ${tacheId}
+  `;
+  await logEvent(await getActeurNom(), "a déclaré la tâche terminée (en attente de validation)", tache.intitule);
+  return getProjet(projetId);
+}
+
+// Le maître d'œuvre (ou le chef de chantier) statue sur une demande de clôture.
+// `valider` → 100 % / done ; sinon retour à l'état normal (l'avancement n'est pas
+// modifié) et le `motif` du refus est consigné en remarque pour l'ouvrier.
+export async function statuerClotureTache(
+  projetId: string,
+  tacheId: string,
+  valider: boolean,
+  motif?: string
+): Promise<Projet | undefined> {
+  const projet = await getProjet(projetId);
+  const tache = projet?.taches.find((t) => t.id === tacheId);
+  if (!projet || !tache) return undefined;
+  if (tache.validation !== "en_attente") {
+    throw new ClotureError("Aucune demande de clôture en attente pour cette tâche.");
+  }
+
+  const acteur = await getActeurNom();
+
+  if (valider) {
+    await sql`
+      UPDATE taches SET avancement = 100, statut = 'done', validation = 'none'
+      WHERE projet_id = ${projetId} AND id = ${tacheId}
+    `;
+  } else {
+    const motifTexte = (motif ?? "").trim();
+    if (!motifTexte) {
+      throw new ClotureError("Un motif est requis pour refuser la clôture.");
+    }
+    // Retour à l'état normal + remarque expliquant le refus (visible par l'ouvrier).
+    await sql.transaction([
+      sql`UPDATE taches SET validation = 'none' WHERE projet_id = ${projetId} AND id = ${tacheId}`,
+      sql`INSERT INTO remarques (id, projet_id, tache_id, auteur, contenu)
+          VALUES (${genId("r")}, ${projetId}, ${tacheId}, ${acteur}, ${`Clôture refusée : ${motifTexte}`})`,
+    ]);
+  }
+
+  // Recharge + resynchronise les valeurs dérivées (avancement/état des niveaux).
+  const updated = await getProjet(projetId);
+  if (!updated) return undefined;
+  await persistDerived(updated);
+  await logEvent(
+    acteur,
+    valider ? "a validé la clôture de la tâche" : "a refusé la clôture de la tâche",
+    tache.intitule
+  );
+  return updated;
 }
 
 // — Remarques sur une tâche (maître d'ouvrage + super-administrateur) —

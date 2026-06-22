@@ -6,6 +6,9 @@ import type { Role } from "./types";
 const ROUTE_ROLES: Record<string, Role[]> = {
   "/utilisateurs": ["super-admin"],
   "/journal": ["super-admin", "moa", "controle", "bailleur"],
+  // « Mes tâches » : vue terrain des tâches affectées, réservée aux exécutants
+  // (ouvrier, chef de chantier). Le super-admin y accède de façon transversale.
+  "/mes-taches": ["super-admin", "ouvrier", "chef-chantier"],
 };
 
 export function canAccess(role: string, pathname: string): boolean {
@@ -45,4 +48,21 @@ const AVANCEMENT_ROLES: Role[] = ["super-admin", "moe", "chef-chantier"];
 
 export function canMajAvancement(role: string): boolean {
   return (AVANCEMENT_ROLES as string[]).includes(role);
+}
+
+// Déclaration de clôture d'une tâche par l'ouvrier qui y est affecté
+// (l'appartenance à la tâche est vérifiée côté serveur).
+const CLOTURE_DEMANDE_ROLES: Role[] = ["super-admin", "ouvrier"];
+
+export function canDemanderCloture(role: string): boolean {
+  return (CLOTURE_DEMANDE_ROLES as string[]).includes(role);
+}
+
+// Validation (ou refus) de la clôture d'une tâche après vérification — assurée
+// par le maître d'œuvre et le chef de chantier (le super-administrateur conserve
+// un accès transversal).
+const CLOTURE_VALIDATION_ROLES: Role[] = ["super-admin", "moe", "chef-chantier"];
+
+export function canValiderCloture(role: string): boolean {
+  return (CLOTURE_VALIDATION_ROLES as string[]).includes(role);
 }

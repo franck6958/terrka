@@ -4,11 +4,14 @@ import {
   updateTache,
   deleteTache,
   setTacheOuvriers,
+  demanderClotureTache,
+  statuerClotureTache,
   VerrouillageError,
+  ClotureError,
   type UpdateTacheInput,
 } from "@/lib/queries";
 import { getSessionUser } from "@/lib/auth";
-import { canGererStructure, canMajAvancement } from "@/lib/rbac";
+import { canGererStructure, canMajAvancement, canDemanderCloture, canValiderCloture } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +32,34 @@ export async function PATCH(
       intitule?: string;
       responsable?: string;
       echeance?: string | null;
+      clotureDemande?: boolean;
+      validation?: "valider" | "refuser";
+      motif?: string;
     };
+
+    // Déclaration de clôture par l'ouvrier affecté (en attente de validation MOE).
+    if (body.clotureDemande === true) {
+      if (!canDemanderCloture(session.role)) {
+        return NextResponse.json({ error: "Action réservée aux ouvriers affectés." }, { status: 403 });
+      }
+      const projet = await demanderClotureTache(id, tacheId, session.sub);
+      if (!projet) return NextResponse.json({ error: "Tâche introuvable." }, { status: 404 });
+      return NextResponse.json({ projet });
+    }
+
+    // Validation / refus de la clôture par le maître d'œuvre ou le chef de chantier.
+    if (body.validation === "valider" || body.validation === "refuser") {
+      if (!canValiderCloture(session.role)) {
+        return NextResponse.json({ error: "Validation de clôture non autorisée pour votre rôle." }, { status: 403 });
+      }
+      const valider = body.validation === "valider";
+      if (!valider && !(body.motif ?? "").trim()) {
+        return NextResponse.json({ error: "Un motif est requis pour refuser la clôture." }, { status: 400 });
+      }
+      const projet = await statuerClotureTache(id, tacheId, valider, body.motif);
+      if (!projet) return NextResponse.json({ error: "Tâche introuvable." }, { status: 404 });
+      return NextResponse.json({ projet });
+    }
 
     // Affectation d'ouvriers (maître d'œuvre).
     if (Array.isArray(body.ouvrierIds)) {
@@ -62,7 +92,7 @@ export async function PATCH(
     }
     return NextResponse.json({ projet });
   } catch (err) {
-    if (err instanceof VerrouillageError) {
+    if (err instanceof VerrouillageError || err instanceof ClotureError) {
       return NextResponse.json({ error: err.message }, { status: 409 });
     }
     console.error("PATCH /api/projets/[id]/taches/[tacheId]", err);

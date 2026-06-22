@@ -85,6 +85,9 @@ interface StoreValue {
   updateTacheMeta: (projetId: string, tacheId: string, input: { intitule: string; responsable?: string; echeance?: string | null }) => Promise<boolean>;
   removeTache: (projetId: string, tacheId: string) => Promise<boolean>;
   setTacheOuvriers: (projetId: string, tacheId: string, ouvrierIds: string[]) => Promise<boolean>;
+  // — Clôture de tâche : déclaration (ouvrier) puis validation (maître d'œuvre) —
+  demanderClotureTache: (projetId: string, tacheId: string) => Promise<boolean>;
+  validerClotureTache: (projetId: string, tacheId: string, valider: boolean, motif?: string) => Promise<boolean>;
   // — Remarques (maître d'ouvrage + super-administrateur) —
   addRemarque: (projetId: string, tacheId: string, contenu: string) => Promise<boolean>;
   removeRemarque: (projetId: string, remarqueId: string) => Promise<boolean>;
@@ -395,6 +398,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [mutateProjet]
   );
 
+  // — Clôture de tâche (ouvrier déclare → maître d'œuvre valide / refuse) —
+  const demanderClotureTache = useCallback(
+    (projetId: string, tacheId: string) =>
+      mutateProjet(`/api/projets/${projetId}/taches/${tacheId}`, { method: "PATCH", body: JSON.stringify({ clotureDemande: true }) }, "La déclaration de fin de tâche a échoué."),
+    [mutateProjet]
+  );
+  const validerClotureTache = useCallback(
+    (projetId: string, tacheId: string, valider: boolean, motif?: string) =>
+      mutateProjet(`/api/projets/${projetId}/taches/${tacheId}`, { method: "PATCH", body: JSON.stringify({ validation: valider ? "valider" : "refuser", motif }) }, "La validation de la tâche a échoué."),
+    [mutateProjet]
+  );
+
   // — Remarques (maître d'ouvrage + super-administrateur) —
   const addRemarque = useCallback(
     (projetId: string, tacheId: string, contenu: string) =>
@@ -655,6 +670,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         updateTacheMeta,
         removeTache,
         setTacheOuvriers,
+        demanderClotureTache,
+        validerClotureTache,
         addRemarque,
         removeRemarque,
         addUtilisateur,

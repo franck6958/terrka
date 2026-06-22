@@ -46,6 +46,7 @@ function structurer(statut: StatusKey, seeds: TacheSeed[]): { etapes: Etape[]; t
     echeance: s.echeance,
     ouvriers: s.ouvriers ?? [],
     remarques: [],
+    validation: "none",
   }));
   const avancement = taches.length
     ? Math.round(taches.reduce((a, t) => a + t.avancement, 0) / taches.length)

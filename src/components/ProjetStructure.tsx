@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Lock,
   Plus,
@@ -11,6 +11,10 @@ import {
   Layers,
   ListChecks,
   CalendarClock,
+  Hourglass,
+  Check,
+  X,
+  Search,
 } from "lucide-react";
 import { Modal } from "./Modal";
 import { StatusBadge } from "./StatusBadge";
@@ -18,8 +22,8 @@ import { ProgressBar } from "./ProgressBar";
 import { AvancementControl } from "./AvancementControl";
 import { useStore } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
-import { canGererStructure, canRemarquer, canMajAvancement } from "@/lib/rbac";
-import type { Projet, Etape, Activite, Tache } from "@/lib/types";
+import { canGererStructure, canRemarquer, canMajAvancement, canValiderCloture } from "@/lib/rbac";
+import type { Projet, Etape, Activite, Tache, Utilisateur } from "@/lib/types";
 
 // Affiche et pilote le découpage hiérarchique d'un projet :
 //   étapes → activités → tâches, avec progression automatique, verrouillage
@@ -272,14 +276,18 @@ function TacheBloc({
   role: string;
   peutDecouper: boolean;
 }) {
-  const { utilisateurs, updateTacheMeta, removeTache, setTacheOuvriers, addRemarque, removeRemarque } = useStore();
+  const { utilisateurs, updateTacheMeta, removeTache, setTacheOuvriers, addRemarque, removeRemarque, validerClotureTache } = useStore();
   const [edit, setEdit] = useState(false);
   const [affecte, setAffecte] = useState(false);
   const [remarques, setRemarques] = useState(false);
   const [nouvelleRemarque, setNouvelleRemarque] = useState("");
+  const [statuant, setStatuant] = useState(false);
+  const [refus, setRefus] = useState(false);
 
   const peutMaj = canMajAvancement(role) && !activite.verrouillee;
   const peutRemarquer = canRemarquer(role);
+  const peutValider = canValiderCloture(role);
+  const enAttente = tache.validation === "en_attente";
   const ouvriersDispo = utilisateurs.filter((u) => u.role === "ouvrier");
 
   return (
@@ -312,6 +320,41 @@ function TacheBloc({
           )
         )}
       </div>
+
+      {/* Demande de clôture déposée par l'ouvrier : validation du maître d'œuvre */}
+      {enAttente && (
+        <div className="mt-3 rounded-control border border-state-risk/30 bg-state-risk/5 p-3">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-state-risk">
+            <Hourglass size={14} aria-hidden /> Un ouvrier a déclaré cette tâche terminée
+          </p>
+          {peutValider ? (
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                disabled={statuant}
+                onClick={async () => {
+                  setStatuant(true);
+                  await validerClotureTache(projet.id, tache.id, true);
+                  setStatuant(false);
+                }}
+                className="btn btn-primary text-xs disabled:opacity-60"
+              >
+                <Check size={14} aria-hidden /> Valider la clôture
+              </button>
+              <button
+                type="button"
+                disabled={statuant}
+                onClick={() => setRefus(true)}
+                className="btn btn-secondary text-xs disabled:opacity-60"
+              >
+                <X size={14} aria-hidden /> Refuser
+              </button>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-muted">En attente de la vérification du maître d&apos;œuvre.</p>
+          )}
+        </div>
+      )}
 
       {/* Ouvriers affectés */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -413,41 +456,29 @@ function TacheBloc({
       />
 
       {/* Modale d'affectation des ouvriers */}
-      <Modal open={affecte} onClose={() => setAffecte(false)} title="Affecter la tâche à des ouvriers">
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const data = new FormData(e.currentTarget);
-            const ids = data.getAll("ouvrier").map(String);
-            const ok = await setTacheOuvriers(projet.id, tache.id, ids);
-            if (ok) setAffecte(false);
-          }}
-          className="space-y-4"
-        >
-          {ouvriersDispo.length === 0 ? (
-            <p className="text-sm text-muted">Aucun compte ouvrier disponible.</p>
-          ) : (
-            <div className="space-y-2">
-              {ouvriersDispo.map((o) => (
-                <label key={o.id} className="flex items-center gap-2 text-sm text-ink">
-                  <input
-                    type="checkbox"
-                    name="ouvrier"
-                    value={o.id}
-                    defaultChecked={tache.ouvriers.some((x) => x.id === o.id)}
-                    className="h-4 w-4 accent-brand-interactive"
-                  />
-                  {o.nom} {!o.actif && <span className="text-xs text-muted">(inactif)</span>}
-                </label>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center justify-end gap-3">
-            <button type="button" onClick={() => setAffecte(false)} className="btn btn-secondary">Annuler</button>
-            <button type="submit" className="btn btn-primary">Enregistrer</button>
-          </div>
-        </form>
-      </Modal>
+      <AffectationOuvriersModal
+        open={affecte}
+        onClose={() => setAffecte(false)}
+        ouvriers={ouvriersDispo}
+        dejaAffectes={tache.ouvriers.map((o) => o.id)}
+        onSubmit={async (ids) => {
+          const ok = await setTacheOuvriers(projet.id, tache.id, ids);
+          if (ok) setAffecte(false);
+        }}
+      />
+
+      {/* Modale de motif lors d'un refus de clôture (transmis à l'ouvrier) */}
+      <TextPromptModal
+        open={refus}
+        title="Refuser la clôture"
+        label="Motif du refus (transmis à l'ouvrier en remarque)"
+        submitLabel="Refuser la clôture"
+        onClose={() => setRefus(false)}
+        onSubmit={async (v) => {
+          const ok = await validerClotureTache(projet.id, tache.id, false, v);
+          if (ok) setRefus(false);
+        }}
+      />
     </div>
   );
 }
@@ -565,6 +596,142 @@ function TacheModal({
           <button type="submit" disabled={busy} className="btn btn-primary disabled:opacity-60">Enregistrer</button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// Initiales (1 à 2 lettres) pour la pastille d'un ouvrier.
+function initiales(nom: string): string {
+  return nom
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((m) => m[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+// Modale d'affectation d'une tâche : liste TOUS les comptes ouvriers (nom +
+// e-mail), avec recherche, sélection multiple et « tout sélectionner », pour que
+// le maître d'œuvre choisisse en connaissance de cause qui réalise la tâche.
+function AffectationOuvriersModal({
+  open,
+  onClose,
+  ouvriers,
+  dejaAffectes,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  ouvriers: Utilisateur[];
+  dejaAffectes: string[];
+  onSubmit: (ids: string[]) => void | Promise<void>;
+}) {
+  const [selection, setSelection] = useState<string[]>(dejaAffectes);
+  const [recherche, setRecherche] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // À chaque ouverture, repartir de la liste réellement affectée à la tâche.
+  useEffect(() => {
+    if (open) {
+      setSelection(dejaAffectes);
+      setRecherche("");
+    }
+    // dejaAffectes volontairement omis : on ne réinitialise qu'à l'ouverture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const terme = recherche.trim().toLowerCase();
+  const filtres = terme
+    ? ouvriers.filter((o) => o.nom.toLowerCase().includes(terme) || o.email.toLowerCase().includes(terme))
+    : ouvriers;
+
+  const toggle = (id: string) =>
+    setSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  return (
+    <Modal open={open} onClose={onClose} title="Affecter la tâche à des ouvriers">
+      {ouvriers.length === 0 ? (
+        <p className="text-sm text-muted">
+          Aucun compte ouvrier n&apos;existe encore. Demandez à un administrateur d&apos;en créer.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {/* Recherche par nom ou e-mail */}
+          <div className="relative">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+            <input
+              type="search"
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder="Rechercher un ouvrier par nom ou e-mail…"
+              className="input pl-9"
+              autoFocus
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted">
+              {selection.length} sélectionné{selection.length > 1 ? "s" : ""} sur {ouvriers.length} ouvrier{ouvriers.length > 1 ? "s" : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelection(selection.length === ouvriers.length ? [] : ouvriers.map((o) => o.id))}
+              className="font-medium text-brand-interactive hover:underline"
+            >
+              {selection.length === ouvriers.length ? "Tout désélectionner" : "Tout sélectionner"}
+            </button>
+          </div>
+
+          {/* Liste des ouvriers (nom + e-mail) */}
+          <div className="max-h-72 space-y-1 overflow-y-auto rounded-control border border-line p-1">
+            {filtres.length === 0 ? (
+              <p className="p-3 text-sm text-muted">Aucun ouvrier ne correspond à votre recherche.</p>
+            ) : (
+              filtres.map((o) => {
+                const coche = selection.includes(o.id);
+                return (
+                  <label
+                    key={o.id}
+                    className={`flex cursor-pointer items-center gap-3 rounded-control px-3 py-2 text-sm hover:bg-surface ${coche ? "bg-brand-interactive/5" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={coche}
+                      onChange={() => toggle(o.id)}
+                      className="h-4 w-4 accent-brand-interactive"
+                    />
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface text-xs font-semibold text-slate">
+                      {initiales(o.nom)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-ink">
+                        {o.nom} {!o.actif && <span className="text-xs text-muted">(inactif)</span>}
+                      </span>
+                      <span className="block truncate text-xs text-muted">{o.email}</span>
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={onClose} className="btn btn-secondary">Annuler</button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                await onSubmit(selection);
+                setBusy(false);
+              }}
+              className="btn btn-primary disabled:opacity-60"
+            >
+              Enregistrer l&apos;affectation
+            </button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

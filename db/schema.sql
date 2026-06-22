@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS taches (
   statut       TEXT    NOT NULL DEFAULT 'ontime',
   responsable  TEXT    NOT NULL DEFAULT '',
   echeance     DATE,
+  -- Validation de clôture (BF — terrain) : 'none' par défaut ; 'en_attente'
+  -- lorsque l'ouvrier affecté déclare la tâche terminée, jusqu'à ce que le
+  -- maître d'œuvre valide (avancement 100 % / statut 'done') ou refuse.
+  validation   TEXT    NOT NULL DEFAULT 'none',
   PRIMARY KEY (projet_id, id)
 );
 
