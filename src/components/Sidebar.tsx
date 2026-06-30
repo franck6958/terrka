@@ -56,11 +56,6 @@ export function Sidebar() {
           Mon profil
         </Link>
       </div>
-      <div className="border-t border-white/10 p-4 text-xs text-white/50">
-        TREKKA · v0.1
-        <br />
-        Monitoring BTP — Cameroun
-      </div>
     </aside>
   );
 }
